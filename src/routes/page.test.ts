@@ -30,12 +30,16 @@ describe('US1 — Upload RAW', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
 		// Mock par défaut : conversion réussie
+		// Le endpoint preview retourne désormais { preview: base64, metadata: {} }
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(() =>
 				Promise.resolve({
 					ok: true,
-					blob: () => Promise.resolve(new Blob(['jpeg'], { type: 'image/jpeg' }))
+					json: () => Promise.resolve({
+						preview: btoa('fake-jpeg'),
+						metadata: { camera: 'Sony A7 IV', iso: 800 }
+					})
 				})
 			)
 		);
