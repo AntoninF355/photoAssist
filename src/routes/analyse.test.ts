@@ -117,10 +117,13 @@ describe("US — Analyse IA de la photo", () => {
 		vi.restoreAllMocks();
 		vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-preview');
 
-		// Premier appel fetch = conversion preview (US1)
+		// Premier appel fetch = conversion preview — retourne { preview: base64, metadata }
 		fetchMock = vi.fn().mockResolvedValueOnce({
 			ok: true,
-			blob: () => Promise.resolve(new Blob(['jpeg'], { type: 'image/jpeg' }))
+			json: () => Promise.resolve({
+				preview: btoa('fake-jpeg'),
+				metadata: { camera: 'Sony A7 IV', iso: 800, shutter: 0.001, aperture: 2.8, focal: 85 }
+			})
 		});
 		vi.stubGlobal('fetch', fetchMock);
 	});
@@ -280,7 +283,9 @@ describe("US — Analyse IA de la photo", () => {
 
 		it("affiche le score sur 10", async () => {
 			await renderWithResult();
-			expect(screen.getByText(new RegExp(`${MOCK_RESULT.score}\\s*/\\s*10`, 'i'))).toBeInTheDocument();
+			// Le score et "/10" peuvent être dans des éléments séparés — on vérifie sur le textContent du panneau
+			const panel = screen.getByRole('complementary', { name: /résultat|analyse/i });
+			expect(panel.textContent).toMatch(new RegExp(`${MOCK_RESULT.score}\\s*/\\s*10`, 'i'));
 		});
 	});
 
