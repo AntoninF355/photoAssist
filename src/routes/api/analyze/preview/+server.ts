@@ -53,6 +53,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		// 2. Redimensionne à 1920px max — réduit la taille (JSON léger) et
 		//    reste sous la limite Claude (8000px) quelle que soit la caméra
 		const jpeg = await sharp(rawJpeg)
+			.rotate()  // applique la rotation EXIF avant tout traitement
 			.resize({ width: 1920, height: 1920, fit: 'inside', withoutEnlargement: true })
 			.jpeg({ quality: 88 })
 			.toBuffer();
