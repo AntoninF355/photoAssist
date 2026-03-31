@@ -60,20 +60,42 @@ RAW reçu → exifr (ISO, vitesse, ouverture, focale, appareil)
 ## User Stories par release
 
 ### Release 1 — Upload et préparation
-- Drag & drop d'une image RAW (`.ARW`, `.CR3`, `.DNG`, `.NEF`, `.RAF`) avec aperçu
-- Message d'erreur explicite + action suggérée si format invalide
-- Bouton d'envoi désactivé pendant l'extraction EXIF/conversion
-- Indicateur de progression avec étapes : "Lecture de la photo" → "Préparation de l'analyse" → "Analyse en cours"
-- Toast de confirmation quand la photo est prête, disparaît après quelques secondes
+US -> En tant qu'utilisateur, je doit pouvoir ajouter une image RAW sur le site facilement
+Critères d'acceptation : 
+- Je dois pouvoir glisser/déposer une image RAW
+- Je dois pouvoir visualiser un apercu de l'image une fois qu'elle est ajouté au site
+- Les formats acceptés sont : `.ARW`, `.CR3`, `.DNG`, `.NEF`, `.RAF`
+- Afficher un message d'erreur si ce n'est un fichier raw
+- En cas d'erreur, un message explicite s'affiche avec une suggestion d'action ("Réessayer" ou "Changer de photo")
+- Un bouton d'envoi est disponible sous l'upload
+- Un indicateur de chargement s'affiche entre le dépôt du fichier et la fin de la conversion
+
+
+ US -> En tant qu'utilisateur, je veux etre informer quand ma photo est prête à etre analysée
+- Le bouton d'envoi est désactivé pendant l'extraction EXIF et la conversion de l'image
+- Un toast de confirmation s'affiche quand la photo est prête à etre envoyé
+- Le toast disparait après quelque seconde
+- L'indicateur affiche l'étape en cours : "Lecture de la photo", "Préparation de l'analyse", "Analyse en cours"
 
 ### Release 2 — Analyse IA
-- L'analyse couvre : lumière, composition, métadonnées/paramètres, identification du sujet et type de photo, axes d'amélioration
-- Les conseils sont adaptés au type de photo identifié
-- Résultat affiché dynamiquement sans rechargement (succès ou erreur)
-- Indicateur pendant l'analyse IA
+US -> En tant qu'utilisateur je veux recevoir une analyse de l'IA sur sa photo, afin de comprendre les points forts et savoir comment ameliorer la composition, lumière, et donner une idée de direction de retouche
+Critères d'acceptation : 
+- L'analyse couvre la lumière, la compositions, les axes d'améliorations
+- Les métadonnées paramètre de la photo et le sujet de l'image dans un premier temps.
+- L'IA identifie le type de photo et le sujet photographié
+- Les conseils sont liés au type de la photo
+- Une fenêtre avec le retour de l'IA doit apparaitre dynamiquement sans recharger.
+- Un indicateur doit informer que l'IA est en train d'analyser la photo
+- Afficher le retour que ce soit une erreur ou une analyse reussi
 
 ### Release 3 — Nouvelle analyse
-- Bouton "Nouvelle photo" remet l'interface à zéro (résultat effacé, bouton d'envoi désactivé)
+US -> En tant que photographe, je veux pouvoir analyser une autre photo sans recharger la page, afin d'enchaîner les analyses facilement.
+
+Critères d'acceptation :
+
+- Un bouton "Nouvelle photo" remet l'interface à zéro
+- L'ancien résultat disparaît proprement
+- Le bouton d'envoi repasse à l'état désactivé
 
 ## Contraintes techniques
 
