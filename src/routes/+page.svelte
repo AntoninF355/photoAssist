@@ -155,6 +155,50 @@
 		if (file) processFile(file);
 	}
 
+	// ── Téléchargement de l'analyse ────────────────────────────────────────────
+	function downloadAnalysis() {
+		if (!analysisResult) return;
+
+		const r = analysisResult;
+		const filename = currentFile?.name.replace(/\.[^.]+$/, '') ?? 'photo';
+
+		const lines = [
+			`# Analyse — ${r.sujet}`,
+			``,
+			`**Type :** ${r.type_photo}`,
+			`**Score :** ${r.score}/10`,
+			``,
+			`## Lumière`,
+			r.lumiere,
+			``,
+			`## Composition`,
+			r.composition,
+			``,
+			`## Axes d'amélioration`,
+			...r.ameliorations.map((c) => `- ${c}`),
+		];
+
+		if (r.retouche) {
+			lines.push(
+				``,
+				`## Direction de retouche`,
+				``,
+				`**Style :** ${r.retouche.style}`,
+				`**Colorimétrie :** ${r.retouche.colorimetrie}`,
+				`**Exposition :** ${r.retouche.exposition}`,
+				`**Finition :** ${r.retouche.finition}`
+			);
+		}
+
+		const blob = new Blob([lines.join('\n')], { type: 'text/markdown; charset=utf-8' });
+		const url  = URL.createObjectURL(blob);
+		const a    = document.createElement('a');
+		a.href     = url;
+		a.download = `analyse-${filename}.md`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
 	// ── Reset ──────────────────────────────────────────────────────────────────
 	function reset() {
 		error = null;
@@ -344,6 +388,15 @@
 								</div>
 							</div>
 						{/if}
+
+						<button class="btn-download" onclick={downloadAnalysis}>
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+								<polyline points="7 10 12 15 17 10"/>
+								<line x1="12" y1="15" x2="12" y2="3"/>
+							</svg>
+							Télécharger l'analyse
+						</button>
 					</div>
 				{/if}
 			</aside>
@@ -711,5 +764,28 @@
 		font-size: 0.85rem;
 		color: #c4c8d8;
 		line-height: 1.55;
+	}
+
+	/* ── Bouton téléchargement ── */
+	.btn-download {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.7rem;
+		border-radius: 8px;
+		border: 1px solid #2a2d3a;
+		background: transparent;
+		color: #8b92a8;
+		font-size: 0.85rem;
+		cursor: pointer;
+		transition: border-color 0.2s, color 0.2s, background 0.2s;
+	}
+
+	.btn-download:hover {
+		border-color: #6e7bff;
+		color: #6e7bff;
+		background: rgba(110, 123, 255, 0.06);
 	}
 </style>
