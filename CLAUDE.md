@@ -97,8 +97,66 @@ Critères d'acceptation :
 - L'ancien résultat disparaît proprement
 - Le bouton d'envoi repasse à l'état désactivé
 
+## Objectif métier du MVP
+
+> Devenir l'outil de référence pour l'auto-formation en photographie automobile, en réduisant le temps entre la prise de vue et le feedback expert de plusieurs jours à quelques secondes.
+
+Les releases 1, 2 et 3 posent les fondations (upload, analyse, reset). Les releases suivantes transforment l'outil en compagnon de progression sur la durée.
+
+## User Stories — Release 4 et au-delà
+
+### Release 4 — Historique des analyses (US-A1)
+
+US -> En tant que photographe amateur, je veux retrouver mes analyses précédentes sans les avoir téléchargées, afin de suivre ma progression dans le temps.
+
+Critères d'acceptation :
+- Les analyses sont sauvegardées automatiquement en localStorage après chaque résultat reçu
+- Un panneau "Historique" liste les analyses passées (miniature, sujet, score, date)
+- Je peux cliquer sur une entrée pour revoir le détail complet de l'analyse
+- Je peux supprimer une entrée de l'historique
+- L'historique persiste après fermeture et réouverture du navigateur
+- Si l'historique est vide, un message d'invitation s'affiche ("Analysez votre première photo")
+- Le stockage est limité à 20 entrées maximum (les plus anciennes sont supprimées automatiquement)
+
+### Release 5 — Analyse en lot (US-B1)
+
+US -> En tant que photographe semi-pro, je veux soumettre plusieurs photos RAW d'un même shoot en une seule fois, afin d'identifier rapidement les meilleures sans analyser manuellement chaque image.
+
+Critères d'acceptation :
+- La zone de dépôt accepte plusieurs fichiers simultanément (jusqu'à 10)
+- Une file d'attente affiche les fichiers en attente d'analyse avec leur statut (en attente, en cours, terminé, erreur)
+- Les analyses s'exécutent séquentiellement (une à la fois) pour éviter la surcharge API
+- Un indicateur de progression global s'affiche (ex : "3 / 7 analysées")
+- À la fin du lot, les photos sont classées automatiquement par score décroissant
+- Je peux télécharger un rapport récapitulatif en markdown listant toutes les analyses du lot
+- Une analyse en erreur ne bloque pas les suivantes
+
+### Release 6 — Export rapport PDF (US-B2)
+
+US -> En tant que photographe semi-pro, je veux exporter l'analyse d'une photo sous forme de rapport PDF illustré, afin de le partager avec un client ou de le conserver dans mon dossier de projet.
+
+Critères d'acceptation :
+- Un bouton "Exporter en PDF" est disponible une fois l'analyse affichée
+- Le PDF contient : l'aperçu de la photo, le score, le type de photo, l'analyse lumière, la composition, les axes d'amélioration et la direction de retouche
+- Le nom du fichier PDF reprend le nom de la photo originale (ex : `analyse-DSC_0042.pdf`)
+- La mise en page est lisible et imprimable (pas de fond noir)
+- Le PDF est généré côté client (pas de requête serveur supplémentaire)
+
+### Release 7 — Mode défi (US-C1)
+
+US -> En tant qu'instructeur ou photographe souhaitant progresser sur un style précis, je veux soumettre une photo en indiquant le style visé, afin de recevoir une analyse calibrée sur ce style plutôt que sur le style détecté automatiquement.
+
+Critères d'acceptation :
+- Avant d'envoyer la photo, je peux sélectionner un "style cible" parmi : Rolling shot, Panning, Freeze / circuit, Statique extérieur, Studio, Détail / macro, Drift, Aérien
+- Le style sélectionné est transmis au backend et injecté dans le prompt
+- L'IA évalue la photo exclusivement selon les critères du style cible (pas de détection automatique)
+- Le résultat affiche clairement le style cible choisi et précise si la photo "relève le défi" ou non
+- Si aucun style n'est sélectionné, le comportement actuel (détection automatique) s'applique
+
 ## Contraintes techniques
 
 - Claude n'accepte pas les RAW natifs → toujours convertir via `sharp` avant envoi
 - Le preview JPEG embarqué dans le RAW suffit pour l'analyse visuelle
 - `ANTHROPIC_API_KEY` uniquement dans `.env` côté serveur, jamais exposée au front
+- localStorage pour la persistance côté client (pas de base de données pour le MVP)
+- Génération PDF côté client uniquement (ex : `jsPDF` ou `@react-pdf` équivalent Svelte) pour éviter un endpoint supplémentaire
