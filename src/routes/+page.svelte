@@ -1,22 +1,6 @@
 <script lang="ts">
-
-	// ── Types ──────────────────────────────────────────────────────────────────
-	interface Retouche {
-		style: string;
-		colorimetrie: string;
-		exposition: string;
-		finition: string;
-	}
-
-	interface AnalysisResult {
-		sujet: string;
-		type_photo: string;
-		lumiere: string;
-		composition: string;
-		ameliorations: string[];
-		retouche: Retouche;
-		score: number;
-	}
+	import { saveEntry, getEntries, deleteEntry } from '$lib/history';
+	import type { HistoryEntry, AnalysisResult } from '$lib/history';
 
 	// ── État upload ────────────────────────────────────────────────────────────
 	const ACCEPTED = ['ARW', 'CR3', 'DNG', 'NEF', 'RAF'];
@@ -39,6 +23,14 @@
 	let currentStep    = $state<string | null>(null);
 	let analysisResult = $state<AnalysisResult | null>(null);
 	let analysisError  = $state<string | null>(null);
+
+	// ── Historique ─────────────────────────────────────────────────────────────
+	let historyEntries = $state<HistoryEntry[]>([]);
+	let historyOpen    = $state(false);
+
+	$effect(() => {
+		historyEntries = getEntries();
+	});
 
 	// ── Helpers ────────────────────────────────────────────────────────────────
 	function getExt(file: File) {
@@ -133,7 +125,17 @@
 
 					const parsed = JSON.parse(data);
 					if (eventName === 'step')   currentStep = parsed.step;
-					if (eventName === 'result') analysisResult = parsed;
+					if (eventName === 'result') {
+						analysisResult = parsed as AnalysisResult;
+						if (previewBlob && currentFile) {
+							const blob = previewBlob, file = currentFile, meta = metadata;
+							createThumbnail(blob).then(thumbnail => {
+								saveEntry({ id: Date.now().toString(), date: new Date().toISOString(),
+									filename: file.name, thumbnail, metadata: meta, result: parsed as AnalysisResult });
+								historyEntries = getEntries();
+							}).catch(() => {});
+						}
+					}
 					if (eventName === 'error')  { analysisError = parsed.message; isAnalyzing = false; }
 					if (eventName === 'done')   { isAnalyzing = false; currentStep = null; }
 				}
@@ -142,6 +144,50 @@
 			analysisError = "Une erreur inattendue s'est produite.";
 			isAnalyzing = false;
 		}
+	}
+
+	// ── Thumbnail (canvas client-side) ────────────────────────────────────────
+	function createThumbnail(blob: Blob): Promise<string> {
+		return new Promise((resolve, reject) => {
+			const img = new Image();
+			const url = URL.createObjectURL(blob);
+			img.onload = () => {
+				const canvas = document.createElement('canvas');
+				const maxW = 160;
+				const scale = Math.min(1, maxW / img.naturalWidth);
+				canvas.width  = Math.round(img.naturalWidth  * scale);
+				canvas.height = Math.round(img.naturalHeight * scale);
+				canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+				URL.revokeObjectURL(url);
+				resolve(canvas.toDataURL('image/jpeg', 0.6));
+			};
+			img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('thumbnail failed')); };
+			img.src = url;
+		});
+	}
+
+	// ── Historique ─────────────────────────────────────────────────────────────
+	function toggleHistory() { historyOpen = !historyOpen; }
+
+	function restoreFromHistory(entry: HistoryEntry) {
+		analysisResult = entry.result;
+		panelOpen      = true;
+		isAnalyzing    = false;
+		currentStep    = null;
+		analysisError  = null;
+	}
+
+	function removeEntry(id: string) {
+		deleteEntry(id);
+		historyEntries = getEntries();
+	}
+
+	function formatDate(iso: string): string {
+		const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+		if (diff < 60)    return "à l'instant";
+		if (diff < 3600)  return `il y a ${Math.floor(diff / 60)}min`;
+		if (diff < 86400) return `il y a ${Math.floor(diff / 3600)}h`;
+		return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 	}
 
 	// ── Drag & drop ────────────────────────────────────────────────────────────
@@ -233,7 +279,16 @@
 			</svg>
 			<span>PhotoAssist</span>
 		</div>
-		<p class="tagline">Analyse IA de vos photos automobiles</p>
+		<button class="btn-history" onclick={toggleHistory}>
+			<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<circle cx="12" cy="12" r="10"/>
+				<polyline points="12 6 12 12 16 14"/>
+			</svg>
+			Historique
+			{#if historyEntries.length > 0}
+				<span class="badge-count">{historyEntries.length}</span>
+			{/if}
+		</button>
 	</header>
 
 	<div class="workspace">
@@ -422,6 +477,44 @@
 		{/if}
 	</div>
 
+	{#if historyOpen}
+		<section aria-label="Historique des analyses" class="history-panel">
+			{#if historyEntries.length === 0}
+				<p class="history-empty">Analysez votre première photo pour la retrouver ici</p>
+			{:else}
+				<div class="history-grid">
+					{#each historyEntries as entry (entry.id)}
+						<article class="history-card">
+							<button class="history-card-main" onclick={() => restoreFromHistory(entry)}>
+								<img src={entry.thumbnail} alt="" class="history-thumb" />
+								<div class="history-info">
+									<p class="history-filename">{entry.filename}</p>
+									<p class="history-type">{entry.result.type_photo}</p>
+									<div class="history-footer">
+										<span class="history-score">{entry.result.score}/10</span>
+										<span class="history-date">{formatDate(entry.date)}</span>
+									</div>
+								</div>
+							</button>
+							<button
+								class="btn-delete"
+								aria-label="Supprimer cette analyse"
+								onclick={() => removeEntry(entry.id)}
+							>
+								<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<polyline points="3 6 5 6 21 6"/>
+									<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+									<path d="M10 11v6M14 11v6"/>
+									<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+								</svg>
+							</button>
+						</article>
+					{/each}
+				</div>
+			{/if}
+		</section>
+	{/if}
+
 	{#if showToast}
 		<div aria-live="polite" aria-atomic="true" class="toast">
 			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -491,8 +584,6 @@
 	}
 
 	.logo svg { color: #6e7bff; }
-
-	.tagline { font-size: 0.8rem; color: #5a5f72; }
 
 	/* ── Dropzone ── */
 	.dropzone {
@@ -793,6 +884,138 @@
 		color: #c4c8d8;
 		line-height: 1.55;
 	}
+
+	/* ── Bouton historique ── */
+	.btn-history {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.45rem 0.85rem;
+		border-radius: 8px;
+		border: 1px solid #2a2d3a;
+		background: transparent;
+		color: #8b92a8;
+		font-size: 0.825rem;
+		cursor: pointer;
+		transition: border-color 0.2s, color 0.2s;
+	}
+
+	.btn-history:hover { border-color: #6e7bff; color: #6e7bff; }
+
+	.badge-count {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 4px;
+		border-radius: 9px;
+		background: #6e7bff;
+		color: #fff;
+		font-size: 0.68rem;
+		font-weight: 700;
+	}
+
+	/* ── Panneau historique ── */
+	.history-panel {
+		width: 100%;
+		max-width: 1100px;
+		margin-top: 2rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid #2a2d3a;
+		animation: slide-in 0.25s ease;
+	}
+
+	.history-empty {
+		color: #5a5f72;
+		font-size: 0.875rem;
+		text-align: center;
+		padding: 2.5rem 1rem;
+	}
+
+	.history-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: 1rem;
+	}
+
+	.history-card {
+		position: relative;
+		border-radius: 12px;
+		border: 1px solid #2a2d3a;
+		background: #13141a;
+		overflow: hidden;
+		transition: border-color 0.2s;
+	}
+
+	.history-card:hover { border-color: #6e7bff; }
+
+	.history-card-main {
+		width: 100%;
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		text-align: left;
+		color: inherit;
+		display: block;
+	}
+
+	.history-thumb {
+		width: 100%;
+		height: 96px;
+		object-fit: cover;
+		display: block;
+	}
+
+	.history-info {
+		padding: 0.6rem 0.75rem 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.history-filename {
+		font-size: 0.75rem;
+		font-family: 'JetBrains Mono', monospace;
+		color: #c4c8d8;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.history-type { font-size: 0.7rem; color: #6e7bff; }
+
+	.history-footer {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-top: 0.3rem;
+	}
+
+	.history-score { font-size: 0.78rem; font-weight: 600; color: #f0f1f3; }
+	.history-date  { font-size: 0.67rem; color: #5a5f72; }
+
+	.btn-delete {
+		position: absolute;
+		top: 0.35rem;
+		right: 0.35rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		border-radius: 6px;
+		border: none;
+		background: rgba(0, 0, 0, 0.55);
+		color: #8b92a8;
+		cursor: pointer;
+		opacity: 0;
+		transition: opacity 0.15s, color 0.15s, background 0.15s;
+	}
+
+	.history-card:hover .btn-delete { opacity: 1; }
+	.btn-delete:hover { color: #f87171; background: rgba(239, 68, 68, 0.18); }
 
 	/* ── Bouton nouvelle photo ── */
 	.btn-nouvelle {
