@@ -320,4 +320,49 @@ describe("US — Analyse IA de la photo", () => {
 			});
 		});
 	});
+
+	// -------------------------------------------------------------------------
+	// US3 — Nouvelle analyse
+	// -------------------------------------------------------------------------
+
+	describe('US3 — Nouvelle analyse', () => {
+		it("affiche un bouton 'Nouvelle photo' dès le lancement de l'analyse", async () => {
+			fetchMock.mockReturnValueOnce(makeHangingStream());
+			await renderWithReadyPhoto();
+			fireEvent.click(screen.getByRole('button', { name: /analyser/i }));
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /nouvelle photo/i })).toBeInTheDocument();
+			});
+		});
+
+		it("ferme le panneau et efface le résultat après clic sur 'Nouvelle photo'", async () => {
+			fetchMock.mockReturnValueOnce(makeCompleteStream());
+			await renderWithReadyPhoto();
+			fireEvent.click(screen.getByRole('button', { name: /analyser/i }));
+
+			await waitFor(() => expect(screen.getByText(MOCK_RESULT.sujet)).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: /nouvelle photo/i }));
+
+			await waitFor(() => {
+				expect(screen.queryByRole('complementary', { name: /résultat|analyse/i })).not.toBeInTheDocument();
+				expect(screen.queryByRole('img', { name: /aperçu|preview/i })).not.toBeInTheDocument();
+			});
+		});
+
+		it("remet le bouton d'envoi à l'état désactivé après reset", async () => {
+			fetchMock.mockReturnValueOnce(makeCompleteStream());
+			await renderWithReadyPhoto();
+			fireEvent.click(screen.getByRole('button', { name: /analyser/i }));
+
+			await waitFor(() => expect(screen.getByText(MOCK_RESULT.sujet)).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: /nouvelle photo/i }));
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /analyser/i })).toBeDisabled();
+			});
+		});
+	});
 });

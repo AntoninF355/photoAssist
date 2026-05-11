@@ -29,6 +29,10 @@
 	let currentFile   = $state<File | null>(null);
 	let isDragOver    = $state(false);
 
+	// ── Toast ─────────────────────────────────────────────────────────────────
+	let showToast    = $state(false);
+	let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
 	// ── État analyse ───────────────────────────────────────────────────────────
 	let panelOpen      = $state(false);
 	let isAnalyzing    = $state(false);
@@ -70,6 +74,9 @@
 			const bytes = Uint8Array.from(atob(preview), (c) => c.charCodeAt(0));
 			previewBlob = new Blob([bytes], { type: 'image/jpeg' });
 			previewUrl = URL.createObjectURL(previewBlob);
+			if (toastTimer) clearTimeout(toastTimer);
+			showToast = true;
+			toastTimer = setTimeout(() => { showToast = false; }, 3000);
 		} catch {
 			error = 'La conversion a échoué. Vérifiez votre fichier et réessayez.';
 			currentFile = null;
@@ -201,6 +208,8 @@
 
 	// ── Reset ──────────────────────────────────────────────────────────────────
 	function reset() {
+		if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+		showToast = false;
 		error = null;
 		previewUrl = null;
 		previewBlob = null;
@@ -309,6 +318,16 @@
 					Analyser
 				{/if}
 			</button>
+
+			{#if panelOpen}
+				<button class="btn-nouvelle" onclick={reset}>
+					<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<polyline points="1 4 1 10 7 10"/>
+						<path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
+					</svg>
+					Nouvelle photo
+				</button>
+			{/if}
 		</main>
 
 		<!-- ── Panneau latéral analyse ── -->
@@ -402,6 +421,15 @@
 			</aside>
 		{/if}
 	</div>
+
+	{#if showToast}
+		<div aria-live="polite" aria-atomic="true" class="toast">
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+				<polyline points="20 6 9 17 4 12"/>
+			</svg>
+			Photo prête à être analysée
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -764,6 +792,56 @@
 		font-size: 0.85rem;
 		color: #c4c8d8;
 		line-height: 1.55;
+	}
+
+	/* ── Bouton nouvelle photo ── */
+	.btn-nouvelle {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.75rem;
+		border-radius: 10px;
+		border: 1px solid #2a2d3a;
+		background: transparent;
+		color: #8b92a8;
+		font-size: 0.875rem;
+		cursor: pointer;
+		transition: border-color 0.2s, color 0.2s, background 0.2s;
+	}
+
+	.btn-nouvelle:hover {
+		border-color: #6e7bff;
+		color: #6e7bff;
+		background: rgba(110, 123, 255, 0.06);
+	}
+
+	/* ── Toast ── */
+	.toast {
+		position: fixed;
+		bottom: 2rem;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.7rem 1.25rem;
+		border-radius: 10px;
+		background: #0d1f10;
+		border: 1px solid rgba(74, 222, 128, 0.3);
+		color: #4ade80;
+		font-size: 0.875rem;
+		font-weight: 500;
+		box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+		white-space: nowrap;
+		animation: toast-in 0.25s ease;
+		z-index: 100;
+	}
+
+	@keyframes toast-in {
+		from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+		to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 	}
 
 	/* ── Bouton téléchargement ── */

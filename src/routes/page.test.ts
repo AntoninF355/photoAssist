@@ -165,3 +165,56 @@ describe('US1 — Upload RAW', () => {
 		});
 	});
 });
+
+// ---------------------------------------------------------------------------
+// US2 — Toast de confirmation photo prête
+// ---------------------------------------------------------------------------
+
+describe('US2 — Toast de confirmation photo prête', () => {
+	beforeEach(() => {
+		vi.restoreAllMocks();
+		vi.useRealTimers();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve({ preview: btoa('fake-jpeg'), metadata: {} })
+			})
+		);
+		vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-preview-url');
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('affiche un toast de confirmation quand la photo est prête', async () => {
+		render(Page);
+		dropFile(getDropzone(), makeFile('photo.ARW'));
+
+		await waitFor(() => {
+			expect(screen.getByText(/prête à être analysée/i)).toBeInTheDocument();
+		});
+	});
+
+	it('le toast disparaît automatiquement après quelques secondes', async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve({ preview: btoa('fake-jpeg'), metadata: {} })
+			})
+		);
+		vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-preview-url');
+
+		render(Page);
+		dropFile(getDropzone(), makeFile('photo.ARW'));
+
+		await vi.advanceTimersByTimeAsync(0);
+		expect(screen.getByText(/prête à être analysée/i)).toBeInTheDocument();
+
+		await vi.advanceTimersByTimeAsync(3500);
+		expect(screen.queryByText(/prête à être analysée/i)).not.toBeInTheDocument();
+	});
+});
