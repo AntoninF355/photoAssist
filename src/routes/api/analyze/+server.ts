@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { ANTHROPIC_API_KEY } from '$env/static/private';
 import type { RequestHandler } from './$types';
 
 // ── Prompt système (fixe) ──────────────────────────────────────────────────
@@ -110,7 +109,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				emit('step', { step: "Préparation de l'analyse" });
 
-				const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+				const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 				emit('step', { step: 'Analyse en cours' });
 
