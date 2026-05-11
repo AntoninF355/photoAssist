@@ -28,6 +28,22 @@
 	let historyEntries = $state<HistoryEntry[]>([]);
 	let historyOpen    = $state(false);
 
+	// ── Mode lot ────────────────────────────────────────────────────────────────
+	type BatchStatus = 'pending' | 'processing' | 'done' | 'error';
+	interface BatchItem {
+		id: string;
+		file: File;
+		previewBlob: Blob | null;
+		metadata: Record<string, unknown>;
+		status: BatchStatus;
+		result: AnalysisResult | null;
+		errorMsg: string | null;
+	}
+	let batchMode    = $state(false);
+	let batchItems   = $state<BatchItem[]>([]);
+	let batchRunning = $state(false);
+	let batchDone    = $state(false);
+
 	$effect(() => {
 		historyEntries = getEntries();
 	});
@@ -194,8 +210,9 @@
 	function handleDrop(e: DragEvent) {
 		e.preventDefault();
 		isDragOver = false;
-		const file = e.dataTransfer?.files[0];
-		if (file) processFile(file);
+		const files = [...(e.dataTransfer?.files ?? [])];
+		if (files.length > 1) startBatchMode(files);
+		else if (files.length === 1) processFile(files[0]);
 	}
 
 	function handleDragOver(e: DragEvent) {
@@ -204,8 +221,9 @@
 	}
 
 	function handleInputChange(e: Event) {
-		const file = (e.target as HTMLInputElement).files?.[0];
-		if (file) processFile(file);
+		const files = [...((e.target as HTMLInputElement).files ?? [])];
+		if (files.length > 1) startBatchMode(files);
+		else if (files.length === 1) processFile(files[0]);
 	}
 
 	// ── Téléchargement de l'analyse ────────────────────────────────────────────
@@ -267,6 +285,151 @@
 		currentStep = null;
 		analysisResult = null;
 		analysisError = null;
+		batchMode    = false;
+		batchItems   = [];
+		batchRunning = false;
+		batchDone    = false;
+	}
+
+	// ── Mode lot : helpers ─────────────────────────────────────────────────────
+	function startBatchMode(files: File[]) {
+		error = null;
+		if (files.length > 10) {
+			error = 'Maximum 10 fichiers par lot.';
+			return;
+		}
+		const valid = files.filter(f => ACCEPTED.includes(getExt(f)));
+		if (valid.length === 0) {
+			error = `Aucun fichier RAW valide. Utilisez ${ACCEPTED.join(', ')}.`;
+			return;
+		}
+		batchMode    = true;
+		batchRunning = false;
+		batchDone    = false;
+		batchItems   = valid.map(f => ({
+			id: Math.random().toString(36).slice(2),
+			file: f,
+			previewBlob: null,
+			metadata: {},
+			status: 'pending' as BatchStatus,
+			result: null,
+			errorMsg: null
+		}));
+	}
+
+	async function parseSseStream(res: Response): Promise<AnalysisResult> {
+		const reader  = res.body!.getReader();
+		const decoder = new TextDecoder();
+		let buffer = '';
+		let result: AnalysisResult | null = null;
+
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			const parts = buffer.split('\n\n');
+			buffer = parts.pop() ?? '';
+			for (const part of parts) {
+				if (!part.trim()) continue;
+				let eventName = '';
+				let data = '';
+				for (const line of part.split('\n')) {
+					if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+					if (line.startsWith('data: '))  data      = line.slice(6).trim();
+				}
+				if (!eventName || !data) continue;
+				const parsed = JSON.parse(data);
+				if (eventName === 'result') result = parsed as AnalysisResult;
+				if (eventName === 'error')  throw new Error(parsed.message);
+			}
+		}
+		if (!result) throw new Error('Aucun résultat reçu');
+		return result;
+	}
+
+	async function runBatch() {
+		batchRunning = true;
+		batchDone    = false;
+		panelOpen    = true;
+
+		for (let i = 0; i < batchItems.length; i++) {
+			batchItems = batchItems.map((it, j) =>
+				j === i ? { ...it, status: 'processing' as BatchStatus } : it
+			);
+			try {
+				const previewForm = new FormData();
+				previewForm.append('file', batchItems[i].file);
+				const previewRes = await fetch('/api/analyze/preview', { method: 'POST', body: previewForm });
+				if (!previewRes.ok) throw new Error('Conversion échouée');
+				const { preview, metadata: exifMeta } = await previewRes.json();
+				const bytes = Uint8Array.from(atob(preview), (c) => c.charCodeAt(0));
+				const blob  = new Blob([bytes], { type: 'image/jpeg' });
+
+				const analyzeForm = new FormData();
+				analyzeForm.append('jpeg', blob, 'preview.jpg');
+				analyzeForm.append('metadata', JSON.stringify(exifMeta ?? {}));
+				const analyzeRes = await fetch('/api/analyze', { method: 'POST', body: analyzeForm });
+				if (!analyzeRes.ok) throw new Error('Analyse échouée');
+
+				const result = await parseSseStream(analyzeRes);
+
+				const file = batchItems[i].file;
+				createThumbnail(blob).then(thumbnail => {
+					saveEntry({ id: Date.now().toString(), date: new Date().toISOString(),
+						filename: file.name, thumbnail, metadata: exifMeta ?? {}, result });
+					historyEntries = getEntries();
+				}).catch(() => {});
+
+				batchItems = batchItems.map((it, j) =>
+					j === i ? { ...it, status: 'done' as BatchStatus, previewBlob: blob, metadata: exifMeta ?? {}, result } : it
+				);
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : 'Erreur inconnue';
+				batchItems = batchItems.map((it, j) =>
+					j === i ? { ...it, status: 'error' as BatchStatus, errorMsg: msg } : it
+				);
+			}
+		}
+
+		batchRunning = false;
+		batchDone    = true;
+		batchItems   = [...batchItems].sort((a, b) => (b.result?.score ?? -1) - (a.result?.score ?? -1));
+	}
+
+	function downloadBatchReport() {
+		const date = new Date().toLocaleDateString('fr-FR');
+		const lines: string[] = [
+			`# Rapport d'analyse en lot — ${date}`,
+			``,
+			`${batchItems.length} photo(s) analysée(s), classées par score décroissant.`,
+			``
+		];
+		for (const item of batchItems) {
+			if (!item.result) {
+				lines.push(`## ${item.file.name} — Erreur`, ``, item.errorMsg ?? 'Analyse échouée', ``);
+				continue;
+			}
+			const r = item.result;
+			lines.push(
+				`## ${item.file.name} — Score : ${r.score}/10`,
+				``,
+				`**Sujet :** ${r.sujet}`,
+				`**Type :** ${r.type_photo}`,
+				``,
+				`### Lumière`, r.lumiere, ``,
+				`### Composition`, r.composition, ``,
+				`### Axes d'amélioration`,
+				...r.ameliorations.map(c => `- ${c}`),
+				``
+			);
+		}
+		const blob = new Blob([lines.join('\n')], { type: 'text/markdown; charset=utf-8' });
+		const url  = URL.createObjectURL(blob);
+		const a    = document.createElement('a');
+		a.href     = url;
+		a.download = `rapport-lot-${new Date().toISOString().slice(0, 10)}.md`;
+		a.click();
+		URL.revokeObjectURL(url);
 	}
 </script>
 
@@ -294,100 +457,145 @@
 	<div class="workspace">
 		<!-- ── Colonne upload ── -->
 		<main class="upload-col">
-			<section
-				role="region"
-				aria-label="Zone de glisser-déposer votre photo RAW"
-				class="dropzone"
-				class:drag-over={isDragOver}
-				class:has-preview={previewUrl}
-				class:loading={isLoading}
-				ondrop={handleDrop}
-				ondragover={handleDragOver}
-				ondragleave={() => (isDragOver = false)}
-			>
-				{#if isLoading}
-					<div role="status" aria-label="Traitement en cours" class="status-loading">
-						<div class="spinner"></div>
-						<p>Traitement en cours…</p>
+			{#if batchMode}
+				<div class="batch-queue">
+					<div class="batch-queue-header">
+						<span class="batch-title">Lot de {batchItems.length} photo{batchItems.length > 1 ? 's' : ''}</span>
+						{#if batchRunning || batchDone}
+							<span class="batch-progress">
+								{batchItems.filter(it => it.status === 'done' || it.status === 'error').length}
+								/ {batchItems.length} analysées
+							</span>
+						{/if}
 					</div>
-				{:else if previewUrl}
-					<img src={previewUrl} alt="Aperçu de votre photo" class="preview-img" />
-					<div class="preview-overlay">
-						<span class="file-name">{currentFile?.name}</span>
-					</div>
-				{:else}
-					<label class="drop-content" for="file-input">
-						<div class="drop-icon">
-							<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-								<polyline points="17 8 12 3 7 8"/>
-								<line x1="12" y1="3" x2="12" y2="15"/>
+					<ul class="batch-list">
+						{#each batchItems as item (item.id)}
+							<li class="batch-item">
+								<span class="batch-item-name">{item.file.name}</span>
+								<span class="batch-status status-{item.status}">
+									{#if item.status === 'pending'}En attente
+									{:else if item.status === 'processing'}En cours
+									{:else if item.status === 'done'}Terminé
+									{:else}Erreur{/if}
+								</span>
+							</li>
+						{/each}
+					</ul>
+					{#if !batchRunning && !batchDone}
+						<button class="btn-primary" onclick={runBatch}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<polygon points="5 3 19 12 5 21 5 3"/>
 							</svg>
-						</div>
-						<p class="drop-title">Glissez votre photo RAW ici</p>
-						<p class="drop-sub">ou <span class="browse-link">parcourez vos fichiers</span></p>
-						<div class="formats">
-							{#each ACCEPTED as fmt}
-								<span class="badge">.{fmt}</span>
-							{/each}
-						</div>
-					</label>
-					<input
-						id="file-input"
-						type="file"
-						accept={ACCEPTED.map((e) => `.${e}`).join(',')}
-						onchange={handleInputChange}
-						class="file-input"
-					/>
-				{/if}
-			</section>
-
-			{#if error}
-				<div role="alert" class="alert">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<circle cx="12" cy="12" r="10"/>
-						<line x1="12" y1="8" x2="12" y2="12"/>
-						<line x1="12" y1="16" x2="12.01" y2="16"/>
-					</svg>
-					<p>{error}</p>
-					<button class="btn-ghost" onclick={reset}>Réessayer</button>
+							Lancer l'analyse
+						</button>
+					{/if}
+					{#if batchDone}
+						<button class="btn-nouvelle" onclick={reset}>
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<polyline points="1 4 1 10 7 10"/>
+								<path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
+							</svg>
+							Nouvelle photo
+						</button>
+					{/if}
 				</div>
-			{/if}
+			{:else}
+				<section
+					role="region"
+					aria-label="Zone de glisser-déposer votre photo RAW"
+					class="dropzone"
+					class:drag-over={isDragOver}
+					class:has-preview={previewUrl}
+					class:loading={isLoading}
+					ondrop={handleDrop}
+					ondragover={handleDragOver}
+					ondragleave={() => (isDragOver = false)}
+				>
+					{#if isLoading}
+						<div role="status" aria-label="Traitement en cours" class="status-loading">
+							<div class="spinner"></div>
+							<p>Traitement en cours…</p>
+						</div>
+					{:else if previewUrl}
+						<img src={previewUrl} alt="Aperçu de votre photo" class="preview-img" />
+						<div class="preview-overlay">
+							<span class="file-name">{currentFile?.name}</span>
+						</div>
+					{:else}
+						<label class="drop-content" for="file-input">
+							<div class="drop-icon">
+								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+									<polyline points="17 8 12 3 7 8"/>
+									<line x1="12" y1="3" x2="12" y2="15"/>
+								</svg>
+							</div>
+							<p class="drop-title">Glissez votre photo RAW ici</p>
+							<p class="drop-sub">ou <span class="browse-link">parcourez vos fichiers</span></p>
+							<div class="formats">
+								{#each ACCEPTED as fmt}
+									<span class="badge">.{fmt}</span>
+								{/each}
+							</div>
+						</label>
+						<input
+							id="file-input"
+							type="file"
+							accept={ACCEPTED.map((e) => `.${e}`).join(',')}
+							multiple
+							onchange={handleInputChange}
+							class="file-input"
+						/>
+					{/if}
+				</section>
 
-			<button
-				class="btn-primary"
-				disabled={isLoading || isAnalyzing || !currentFile}
-				onclick={analyzePhoto}
-			>
-				{#if isAnalyzing}
-					<div class="spinner-sm"></div>
-					Analyse en cours…
-				{:else if isLoading}
-					<div class="spinner-sm"></div>
-					Conversion…
-				{:else}
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<circle cx="11" cy="11" r="8"/>
-						<line x1="21" y1="21" x2="16.65" y2="16.65"/>
-					</svg>
-					Analyser
+				{#if error}
+					<div role="alert" class="alert">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"/>
+							<line x1="12" y1="8" x2="12" y2="12"/>
+							<line x1="12" y1="16" x2="12.01" y2="16"/>
+						</svg>
+						<p>{error}</p>
+						<button class="btn-ghost" onclick={reset}>Réessayer</button>
+					</div>
 				{/if}
-			</button>
 
-			{#if panelOpen}
-				<button class="btn-nouvelle" onclick={reset}>
-					<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<polyline points="1 4 1 10 7 10"/>
-						<path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
-					</svg>
-					Nouvelle photo
+				<button
+					class="btn-primary"
+					disabled={isLoading || isAnalyzing || !currentFile}
+					onclick={analyzePhoto}
+				>
+					{#if isAnalyzing}
+						<div class="spinner-sm"></div>
+						Analyse en cours…
+					{:else if isLoading}
+						<div class="spinner-sm"></div>
+						Conversion…
+					{:else}
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="11" cy="11" r="8"/>
+							<line x1="21" y1="21" x2="16.65" y2="16.65"/>
+						</svg>
+						Analyser
+					{/if}
 				</button>
+
+				{#if panelOpen}
+					<button class="btn-nouvelle" onclick={reset}>
+						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<polyline points="1 4 1 10 7 10"/>
+							<path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
+						</svg>
+						Nouvelle photo
+					</button>
+				{/if}
 			{/if}
 		</main>
 
 		<!-- ── Panneau latéral analyse ── -->
-		{#if panelOpen}
-			<aside role="complementary" aria-label="Résultat de l'analyse" class="panel">
+		{#if panelOpen && !batchMode}
+			<aside aria-label="Résultat de l'analyse" class="panel">
 				{#if isAnalyzing}
 					<div role="status" aria-label="Analyse en cours" aria-busy="true" class="panel-loading">
 						<div class="spinner"></div>
@@ -473,6 +681,53 @@
 						</button>
 					</div>
 				{/if}
+			</aside>
+		{:else if batchMode && panelOpen}
+			<aside aria-label="Classement du lot" class="panel">
+				{#if batchDone}
+					<div class="batch-results-header">
+						<h2 class="batch-results-title">Résultats du lot</h2>
+						<button class="btn-download" onclick={downloadBatchReport}>
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+								<polyline points="7 10 12 15 17 10"/>
+								<line x1="12" y1="15" x2="12" y2="3"/>
+							</svg>
+							Télécharger le rapport
+						</button>
+					</div>
+				{:else}
+					<div role="status" aria-label="Analyse en cours" aria-busy="true" class="panel-loading">
+						<div class="spinner"></div>
+						<p class="step-label">Analyse en cours…</p>
+					</div>
+				{/if}
+				<div class="batch-results-list">
+					{#each batchItems as item, rank (item.id)}
+						{#if item.status === 'done' || item.status === 'error'}
+							<article class="batch-result-card" class:has-error={item.status === 'error'}>
+								<div class="batch-result-header">
+									<span class="batch-rank">#{rank + 1}</span>
+									<span class="batch-result-filename">{item.file.name}</span>
+									{#if item.result}
+										<div class="score-badge">
+											<span class="score-value">{item.result.score}</span>
+											<span class="score-denom">/10</span>
+										</div>
+									{:else}
+										<span class="batch-error-badge">Erreur</span>
+									{/if}
+								</div>
+								{#if item.result}
+									<p class="batch-result-sujet">{item.result.sujet}</p>
+									<p class="batch-result-type">{item.result.type_photo}</p>
+								{:else if item.errorMsg}
+									<p class="batch-result-error">{item.errorMsg}</p>
+								{/if}
+							</article>
+						{/if}
+					{/each}
+				</div>
 			</aside>
 		{/if}
 	</div>
@@ -1088,5 +1343,169 @@
 		border-color: #6e7bff;
 		color: #6e7bff;
 		background: rgba(110, 123, 255, 0.06);
+	}
+
+	/* ── Lot (batch) ── */
+	.batch-queue {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.batch-queue-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.batch-title {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #c4c8d8;
+	}
+
+	.batch-progress {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #6e7bff;
+		white-space: nowrap;
+	}
+
+	.batch-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		list-style: none;
+		background: #13141a;
+		border: 1px solid #2a2d3a;
+		border-radius: 12px;
+		padding: 0.75rem;
+		max-height: 340px;
+		overflow-y: auto;
+	}
+
+	.batch-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.45rem 0.5rem;
+		border-radius: 8px;
+		background: #0e0f14;
+	}
+
+	.batch-item-name {
+		font-size: 0.78rem;
+		font-family: 'JetBrains Mono', monospace;
+		color: #c4c8d8;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 0;
+	}
+
+	.batch-status {
+		font-size: 0.7rem;
+		font-weight: 600;
+		padding: 0.2rem 0.55rem;
+		border-radius: 6px;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	.status-pending   { background: #1e2030; color: #5a5f72; }
+	.status-processing { background: rgba(110,123,255,0.15); color: #6e7bff; }
+	.status-done      { background: rgba(74,222,128,0.12); color: #4ade80; }
+	.status-error     { background: rgba(239,68,68,0.12); color: #f87171; }
+
+	/* ── Panneau batch résultats ── */
+	.batch-results-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 1.25rem 1.5rem 0.75rem;
+		border-bottom: 1px solid #1e2030;
+	}
+
+	.batch-results-title {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #c4c8d8;
+	}
+
+	.batch-results-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 1rem 1.5rem 1.5rem;
+	}
+
+	.batch-result-card {
+		background: #0e0f14;
+		border: 1px solid #2a2d3a;
+		border-radius: 10px;
+		padding: 0.85rem 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		transition: border-color 0.15s;
+	}
+
+	.batch-result-card.has-error { border-color: rgba(239,68,68,0.3); }
+
+	.batch-result-header {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.batch-rank {
+		font-size: 0.7rem;
+		font-weight: 700;
+		color: #5a5f72;
+		flex-shrink: 0;
+		width: 1.5rem;
+	}
+
+	.batch-result-filename {
+		font-size: 0.72rem;
+		font-family: 'JetBrains Mono', monospace;
+		color: #8b92a8;
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.batch-error-badge {
+		font-size: 0.68rem;
+		font-weight: 600;
+		padding: 0.15rem 0.5rem;
+		border-radius: 5px;
+		background: rgba(239,68,68,0.12);
+		color: #f87171;
+		flex-shrink: 0;
+	}
+
+	.batch-result-sujet {
+		font-size: 0.82rem;
+		font-weight: 500;
+		color: #f0f1f3;
+		line-height: 1.4;
+		padding-left: 2.1rem;
+	}
+
+	.batch-result-type {
+		font-size: 0.72rem;
+		color: #6e7bff;
+		padding-left: 2.1rem;
+	}
+
+	.batch-result-error {
+		font-size: 0.78rem;
+		color: #f87171;
+		padding-left: 2.1rem;
 	}
 </style>
