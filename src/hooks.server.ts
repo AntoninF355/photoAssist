@@ -1,8 +1,7 @@
 import type { Handle } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
 
 export const handle: Handle = async ({ event, resolve }) => {
-	const password = env.SITE_PASSWORD;
+	const password = process.env.SITE_PASSWORD;
 
 	if (password) {
 		const auth = event.request.headers.get('authorization') ?? '';

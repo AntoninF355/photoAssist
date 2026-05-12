@@ -25,9 +25,6 @@ COPY --from=builder /app/package.json ./package.json
 
 ENV NODE_ENV=production
 ENV PORT=3000
-# ORIGIN must match the URL the browser uses to reach the app (CSRF check)
-ENV ORIGIN=http://localhost:3000
-# RAW files can exceed the 512KB default; no hard cap needed here
 ENV BODY_SIZE_LIMIT=Infinity
 
 EXPOSE 3000
