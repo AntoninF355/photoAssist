@@ -7,6 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+RUN npx svelte-kit sync
 RUN npm run build
 
 # Prune dev dependencies
