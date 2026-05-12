@@ -5,6 +5,19 @@
 	// ── État upload ────────────────────────────────────────────────────────────
 	const ACCEPTED = ['ARW', 'CR3', 'DNG', 'NEF', 'RAF'];
 
+	const CHALLENGE_STYLES = [
+		'Rolling shot',
+		'Panning',
+		'Freeze / circuit',
+		'Statique extérieur',
+		'Studio',
+		'Détail / macro',
+		'Drift',
+		'Aérien'
+	];
+
+	let selectedStyle = $state('');
+
 	let previewUrl    = $state<string | null>(null);
 	let previewBlob   = $state<Blob | null>(null);
 	let metadata      = $state<Record<string, unknown>>({});
@@ -107,6 +120,7 @@
 			const form = new FormData();
 			form.append('jpeg', previewBlob, 'preview.jpg');
 			form.append('metadata', JSON.stringify(metadata));
+			if (selectedStyle) form.append('targetStyle', selectedStyle);
 
 			const res = await fetch('/api/analyze', { method: 'POST', body: form });
 
@@ -385,6 +399,7 @@
 		batchItems   = [];
 		batchRunning = false;
 		batchDone    = false;
+		selectedStyle = '';
 	}
 
 	// ── Mode lot : helpers ─────────────────────────────────────────────────────
@@ -818,6 +833,23 @@
 					</div>
 				{/if}
 
+				{#if currentFile && !isLoading}
+					<div class="style-selector-wrap">
+						<label for="style-select" class="style-selector-label">Style cible visé</label>
+						<select
+							id="style-select"
+							aria-label="Style cible visé"
+							class="style-selector"
+							bind:value={selectedStyle}
+						>
+							<option value="">Aucun / Détection automatique</option>
+							{#each CHALLENGE_STYLES as style}
+								<option value={style}>{style}</option>
+							{/each}
+						</select>
+					</div>
+				{/if}
+
 				<button
 					class="btn-primary"
 					disabled={isLoading || isAnalyzing || !currentFile}
@@ -838,7 +870,7 @@
 					{/if}
 				</button>
 
-				{#if panelOpen}
+				{#if currentFile}
 					<button class="btn-nouvelle" onclick={reset}>
 						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<polyline points="1 4 1 10 7 10"/>
@@ -879,6 +911,17 @@
 								<span class="score-denom">/10</span>
 							</div>
 						</div>
+
+						{#if selectedStyle}
+							<div class="challenge-block">
+								<span class="challenge-style">Style cible : {selectedStyle}</span>
+								{#if analysisResult.releve_defi === true}
+									<span class="challenge-verdict challenge-win">✓ Relève le défi</span>
+								{:else if analysisResult.releve_defi === false}
+									<span class="challenge-verdict challenge-fail">✗ Ne relève pas le défi</span>
+								{/if}
+							</div>
+						{/if}
 
 						<div class="result-section">
 							<h3>Lumière</h3>
@@ -1604,6 +1647,47 @@
 		from { opacity: 0; transform: translateX(-50%) translateY(8px); }
 		to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 	}
+
+	/* ── Sélecteur style cible ── */
+	.style-selector-wrap {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		margin-top: 0.25rem;
+	}
+	.style-selector-label {
+		font-size: 0.75rem;
+		color: #9ca3af;
+		font-weight: 500;
+		letter-spacing: 0.03em;
+	}
+	.style-selector {
+		background: #1a1d2e;
+		border: 1px solid #2d3149;
+		color: #e2e4ef;
+		border-radius: 8px;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.875rem;
+		cursor: pointer;
+	}
+	.style-selector:focus { outline: 2px solid #6e7bff; outline-offset: 2px; }
+
+	/* ── Bloc challenge ── */
+	.challenge-block {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.6rem 0.9rem;
+		background: #12142080;
+		border-radius: 8px;
+		border: 1px solid #2d3149;
+		margin-bottom: 0.5rem;
+		flex-wrap: wrap;
+	}
+	.challenge-style { font-size: 0.8rem; color: #9ca3af; }
+	.challenge-verdict { font-size: 0.85rem; font-weight: 600; }
+	.challenge-win  { color: #34d399; }
+	.challenge-fail { color: #f87171; }
 
 	/* ── Actions téléchargement ── */
 	.download-actions {

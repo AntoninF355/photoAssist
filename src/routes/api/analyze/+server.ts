@@ -77,12 +77,60 @@ function extractJson(text: string): unknown {
 	return JSON.parse(match[0]);
 }
 
+// ── Prompt mode défi ──────────────────────────────────────────────────────
+
+function buildChallengePrompt(targetStyle: string): string {
+	return `Tu es un expert en photographie automobile avec 20 ans d'expérience.
+L'utilisateur soumet une photo en MODE DÉFI : le style cible est "${targetStyle}".
+
+── RÈGLE CRITIQUE : MODE DÉFI ──────────────────────────────────────────────
+Tu évalues la photo EXCLUSIVEMENT selon les critères du style "${targetStyle}".
+Tu NE détectes PAS automatiquement le style photographique.
+Tu te demandes : "Cette photo réussit-elle comme un ${targetStyle} ?"
+
+── CRITÈRES DU STYLE CIBLE ─────────────────────────────────────────────────
+Utilise les critères de réussite propres au style "${targetStyle}" :
+- Rolling shot  → qualité du filé (régularité, direction), netteté du sujet, cadrage
+- Panning       → sujet net, fond flou en arc, synchronisation du mouvement
+- Freeze        → netteté globale, instant décisif, cadrage dynamique
+- Statique extérieur → lumière, composition, mise en valeur du véhicule
+- Studio        → homogénéité de l'éclairage, symétrie, rendu carrosserie
+- Détail / macro → mise au point, texture, angle révélateur
+- Drift         → flou de rotation, fumée des pneus, dynamisme
+- Aérien        → point de vue plongeant, lisibilité de la scène
+
+── RÈGLES ABSOLUES ─────────────────────────────────────────────────────────
+- Tu réponds UNIQUEMENT en JSON valide, sans markdown, sans texte avant ou après.
+- Tu identifies précisément la marque et le modèle du véhicule.
+- Dans "lumiere" et "composition", cite OBLIGATOIREMENT les valeurs EXIF.
+- Les conseils dans "ameliorations" sont calibrés pour le style "${targetStyle}".
+- "releve_defi" vaut true si la photo réussit le style cible, false sinon.
+
+── STRUCTURE JSON ───────────────────────────────────────────────────────────
+{
+  "sujet": "marque modèle + situation précise",
+  "type_photo": "${targetStyle} — catégorie précise",
+  "lumiere": "analyse contextuelle avec citation ISO/vitesse/ouverture",
+  "composition": "analyse contextuelle avec citation de la focale",
+  "ameliorations": ["conseil adapté au style ${targetStyle} 1", "conseil 2", "conseil 3"],
+  "retouche": {
+    "style": "direction artistique adaptée au ${targetStyle}",
+    "colorimetrie": "palette suggérée",
+    "exposition": "ajustements spécifiques",
+    "finition": "grain, netteté, vignettage"
+  },
+  "score": 7,
+  "releve_defi": true
+}`;
+}
+
 // ── Handler SSE ────────────────────────────────────────────────────────────
 
 export const POST: RequestHandler = async ({ request }) => {
 	const form = await request.formData();
-	const jpegFile = form.get('jpeg');
-	const metaRaw  = form.get('metadata');
+	const jpegFile    = form.get('jpeg');
+	const metaRaw     = form.get('metadata');
+	const targetStyle = (form.get('targetStyle') as string | null) || null;
 
 	if (!(jpegFile instanceof File)) {
 		return new Response('Image JPEG manquante', { status: 400 });
@@ -91,6 +139,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	const metadata: Record<string, unknown> = metaRaw
 		? JSON.parse(metaRaw as string)
 		: {};
+
+	const systemPrompt = targetStyle ? buildChallengePrompt(targetStyle) : SYSTEM_PROMPT;
 
 	const encoder = new TextEncoder();
 
@@ -117,7 +167,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				const message = await client.messages.create({
 					model: 'claude-haiku-4-5-20251001',
 					max_tokens: 1024,
-					system: SYSTEM_PROMPT,
+					system: systemPrompt,
 					messages: [{
 						role: 'user',
 						content: [

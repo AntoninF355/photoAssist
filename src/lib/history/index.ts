@@ -13,6 +13,7 @@ export interface AnalysisResult {
 	ameliorations: string[];
 	retouche: Retouche;
 	score: number;
+	releve_defi?: boolean;
 }
 
 export interface HistoryEntry {
