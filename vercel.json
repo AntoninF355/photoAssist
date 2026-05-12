@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "src/routes/api/analyze/+server.ts": {
-      "maxDuration": 60
-    }
-  }
-}
