@@ -226,6 +226,102 @@
 		else if (files.length === 1) processFile(files[0]);
 	}
 
+	// ── Export PDF ─────────────────────────────────────────────────────────────
+	async function exportToPDF() {
+		if (!analysisResult) return;
+
+		const { default: jsPDF } = await import('jspdf');
+		const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+		const pageW  = doc.internal.pageSize.getWidth();
+		const margin = 15;
+		const colW   = pageW - margin * 2;
+		let y = margin;
+
+		const white  = [255, 255, 255] as const;
+		const dark   = [30,  30,  40]  as const;
+		const accent = [110, 123, 255] as const;
+		const grey   = [90,  95, 114]  as const;
+		const light  = [196, 200, 216] as const;
+
+		// Fond blanc — mise en page imprimable
+		doc.setFillColor(...white);
+		doc.rect(0, 0, pageW, doc.internal.pageSize.getHeight(), 'F');
+
+		// ── Aperçu photo ──
+		if (previewBlob) {
+			const imgData = await new Promise<string>((resolve) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(reader.result as string);
+				reader.readAsDataURL(previewBlob!);
+			});
+			const imgH = 70;
+			doc.addImage(imgData, 'JPEG', margin, y, colW, imgH);
+			y += imgH + 5;
+		}
+
+		// ── Titre / sujet ──
+		doc.setFont('helvetica', 'bold');
+		doc.setFontSize(16);
+		doc.setTextColor(...dark);
+		doc.text(analysisResult.sujet, margin, y);
+		y += 7;
+
+		// ── Type + score ──
+		doc.setFont('helvetica', 'normal');
+		doc.setFontSize(10);
+		doc.setTextColor(...accent);
+		doc.text(analysisResult.type_photo, margin, y);
+
+		doc.setFont('helvetica', 'bold');
+		doc.setFontSize(12);
+		doc.setTextColor(...dark);
+		doc.text(`${analysisResult.score}/10`, pageW - margin - 20, y);
+		y += 8;
+
+		// Séparateur
+		doc.setDrawColor(...grey);
+		doc.line(margin, y, pageW - margin, y);
+		y += 6;
+
+		// ── Sections helper ──
+		const section = (title: string, body: string | string[]) => {
+			doc.setFont('helvetica', 'bold');
+			doc.setFontSize(9);
+			doc.setTextColor(...grey);
+			doc.text(title.toUpperCase(), margin, y);
+			y += 5;
+
+			doc.setFont('helvetica', 'normal');
+			doc.setFontSize(10);
+			doc.setTextColor(...light);
+
+			const lines = Array.isArray(body) ? body : doc.splitTextToSize(body, colW);
+			for (const line of lines) {
+				doc.text(line, margin, y);
+				y += 5;
+			}
+			y += 2;
+		};
+
+		section('Lumière',      analysisResult.lumiere);
+		section('Composition',  analysisResult.composition);
+		section("Axes d'amélioration", analysisResult.ameliorations.map(a => `• ${a}`));
+
+		if (analysisResult.retouche) {
+			const r = analysisResult.retouche;
+			section('Direction de retouche', [
+				`Style : ${r.style}`,
+				`Colorimétrie : ${r.colorimetrie}`,
+				`Exposition : ${r.exposition}`,
+				`Finition : ${r.finition}`
+			]);
+		}
+
+		const base = currentFile?.name.replace(/\.[^.]+$/, '') ?? 'photo';
+		doc.save(`analyse-${base}.pdf`);
+	}
+
 	// ── Téléchargement de l'analyse ────────────────────────────────────────────
 	function downloadAnalysis() {
 		if (!analysisResult) return;
@@ -431,17 +527,149 @@
 		a.click();
 		URL.revokeObjectURL(url);
 	}
+
+	async function downloadBatchPDF() {
+		const { default: jsPDF } = await import('jspdf');
+		const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+		const pageW  = doc.internal.pageSize.getWidth();
+		const pageH  = doc.internal.pageSize.getHeight();
+		const margin = 15;
+		const colW   = pageW - margin * 2;
+
+		const white  = [255, 255, 255] as const;
+		const dark   = [30,  30,  40]  as const;
+		const accent = [110, 123, 255] as const;
+		const grey   = [90,  95, 114]  as const;
+		const light  = [196, 200, 216] as const;
+
+		doc.setFillColor(...white);
+		doc.rect(0, 0, pageW, pageH, 'F');
+
+		const dateStr = new Date().toISOString().slice(0, 10);
+		let y = margin;
+
+		// ── Titre ──
+		doc.setFont('helvetica', 'bold');
+		doc.setFontSize(18);
+		doc.setTextColor(...dark);
+		doc.text("Rapport d'analyse en lot", margin, y);
+		y += 7;
+
+		doc.setFont('helvetica', 'normal');
+		doc.setFontSize(10);
+		doc.setTextColor(...grey);
+		doc.text(dateStr, margin, y);
+		y += 10;
+
+		// ── Entrées ──
+		for (let i = 0; i < batchItems.length; i++) {
+			const item = batchItems[i];
+
+			if (y > pageH - 40) {
+				doc.addPage();
+				doc.setFillColor(...white);
+				doc.rect(0, 0, pageW, pageH, 'F');
+				y = margin;
+			}
+
+			doc.setDrawColor(...grey);
+			doc.line(margin, y, pageW - margin, y);
+			y += 5;
+
+			// Rank + filename + score
+			doc.setFont('helvetica', 'bold');
+			doc.setFontSize(11);
+			doc.setTextColor(...dark);
+			doc.text(`#${i + 1}  ${item.file.name}`, margin, y);
+
+			if (item.result) {
+				doc.setTextColor(...accent);
+				doc.text(`${item.result.score}/10`, pageW - margin - 15, y);
+			}
+			y += 6;
+
+			if (!item.result) {
+				doc.setFont('helvetica', 'normal');
+				doc.setFontSize(9);
+				doc.setTextColor(239, 68, 68);
+				doc.text(item.errorMsg ?? 'Analyse échouée', margin, y);
+				y += 8;
+				continue;
+			}
+
+			const r = item.result;
+
+			// Aperçu photo
+			if (item.previewBlob) {
+				const imgData = await new Promise<string>((resolve) => {
+					const reader = new FileReader();
+					reader.onload = () => resolve(reader.result as string);
+					reader.readAsDataURL(item.previewBlob!);
+				});
+				const imgH = 45;
+				if (y + imgH > pageH - margin) {
+					doc.addPage();
+					doc.setFillColor(...white);
+					doc.rect(0, 0, pageW, pageH, 'F');
+					y = margin;
+				}
+				doc.addImage(imgData, 'JPEG', margin, y, colW, imgH);
+				y += imgH + 4;
+			}
+
+			// Sujet + type
+			doc.setFont('helvetica', 'normal');
+			doc.setFontSize(10);
+			doc.setTextColor(...light);
+			doc.text(r.sujet, margin, y);
+			y += 5;
+
+			doc.setFontSize(9);
+			doc.setTextColor(...accent);
+			doc.text(r.type_photo, margin, y);
+			y += 7;
+
+			// Lumière
+			doc.setFont('helvetica', 'bold');
+			doc.setFontSize(8);
+			doc.setTextColor(...grey);
+			doc.text('LUMIÈRE', margin, y);
+			y += 4;
+			doc.setFont('helvetica', 'normal');
+			doc.setFontSize(9);
+			doc.setTextColor(...light);
+			const lumiereLines = doc.splitTextToSize(r.lumiere, colW);
+			for (const line of lumiereLines) { doc.text(line, margin, y); y += 4; }
+			y += 2;
+
+			// Composition
+			doc.setFont('helvetica', 'bold');
+			doc.setFontSize(8);
+			doc.setTextColor(...grey);
+			doc.text('COMPOSITION', margin, y);
+			y += 4;
+			doc.setFont('helvetica', 'normal');
+			doc.setFontSize(9);
+			doc.setTextColor(...light);
+			const compoLines = doc.splitTextToSize(r.composition, colW);
+			for (const line of compoLines) { doc.text(line, margin, y); y += 4; }
+			y += 5;
+		}
+
+		doc.save(`rapport-lot-${dateStr}.pdf`);
+	}
 </script>
 
 <div class="page" class:panel-open={panelOpen}>
 	<header class="header">
-		<div class="logo">
+		<a href="/" class="logo" onclick={reset}>
 			<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
 				<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
 				<circle cx="12" cy="13" r="4"/>
 			</svg>
 			<span>PhotoAssist</span>
-		</div>
+		</a>
 		<button class="btn-history" onclick={toggleHistory}>
 			<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<circle cx="12" cy="12" r="10"/>
@@ -671,14 +899,26 @@
 							</div>
 						{/if}
 
-						<button class="btn-download" onclick={downloadAnalysis}>
-							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-								<polyline points="7 10 12 15 17 10"/>
-								<line x1="12" y1="15" x2="12" y2="3"/>
-							</svg>
-							Télécharger l'analyse
-						</button>
+						<div class="download-actions">
+							<button class="btn-download" onclick={exportToPDF}>
+								<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+									<polyline points="14 2 14 8 20 8"/>
+									<line x1="16" y1="13" x2="8" y2="13"/>
+									<line x1="16" y1="17" x2="8" y2="17"/>
+									<polyline points="10 9 9 9 8 9"/>
+								</svg>
+								Exporter en PDF
+							</button>
+							<button class="btn-download" onclick={downloadAnalysis}>
+								<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+									<polyline points="7 10 12 15 17 10"/>
+									<line x1="12" y1="15" x2="12" y2="3"/>
+								</svg>
+								Télécharger l'analyse
+							</button>
+						</div>
 					</div>
 				{/if}
 			</aside>
@@ -687,14 +927,26 @@
 				{#if batchDone}
 					<div class="batch-results-header">
 						<h2 class="batch-results-title">Résultats du lot</h2>
-						<button class="btn-download" onclick={downloadBatchReport}>
-							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-								<polyline points="7 10 12 15 17 10"/>
-								<line x1="12" y1="15" x2="12" y2="3"/>
-							</svg>
-							Télécharger le rapport
-						</button>
+						<div class="batch-header-actions">
+							<button class="btn-download" onclick={downloadBatchPDF}>
+								<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+									<polyline points="14 2 14 8 20 8"/>
+									<line x1="16" y1="13" x2="8" y2="13"/>
+									<line x1="16" y1="17" x2="8" y2="17"/>
+									<polyline points="10 9 9 9 8 9"/>
+								</svg>
+								Exporter en PDF
+							</button>
+							<button class="btn-download" onclick={downloadBatchReport}>
+								<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+									<polyline points="7 10 12 15 17 10"/>
+									<line x1="12" y1="15" x2="12" y2="3"/>
+								</svg>
+								Télécharger le rapport
+							</button>
+						</div>
 					</div>
 				{:else}
 					<div role="status" aria-label="Analyse en cours" aria-busy="true" class="panel-loading">
@@ -836,6 +1088,8 @@
 		font-weight: 600;
 		color: #f0f1f3;
 		letter-spacing: -0.01em;
+		text-decoration: none;
+		cursor: pointer;
 	}
 
 	.logo svg { color: #6e7bff; }
@@ -1322,6 +1576,13 @@
 		to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 	}
 
+	/* ── Actions téléchargement ── */
+	.download-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
 	/* ── Bouton téléchargement ── */
 	.btn-download {
 		display: flex;
@@ -1427,6 +1688,11 @@
 		gap: 1rem;
 		padding: 1.25rem 1.5rem 0.75rem;
 		border-bottom: 1px solid #1e2030;
+	}
+
+	.batch-header-actions {
+		display: flex;
+		gap: 0.5rem;
 	}
 
 	.batch-results-title {
