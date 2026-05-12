@@ -549,6 +549,16 @@
 		const dateStr = new Date().toISOString().slice(0, 10);
 		let y = margin;
 
+		// Saute de page si moins de `needed` mm disponibles
+		const newPage = (needed = 10) => {
+			if (y + needed > pageH - margin) {
+				doc.addPage();
+				doc.setFillColor(...white);
+				doc.rect(0, 0, pageW, pageH, 'F');
+				y = margin;
+			}
+		};
+
 		// ── Titre ──
 		doc.setFont('helvetica', 'bold');
 		doc.setFontSize(18);
@@ -566,12 +576,7 @@
 		for (let i = 0; i < batchItems.length; i++) {
 			const item = batchItems[i];
 
-			if (y > pageH - 40) {
-				doc.addPage();
-				doc.setFillColor(...white);
-				doc.rect(0, 0, pageW, pageH, 'F');
-				y = margin;
-			}
+			newPage(40);
 
 			doc.setDrawColor(...grey);
 			doc.line(margin, y, pageW - margin, y);
@@ -600,25 +605,47 @@
 
 			const r = item.result;
 
-			// Aperçu photo
+			// Aperçu photo — ratio préservé
 			if (item.previewBlob) {
 				const imgData = await new Promise<string>((resolve) => {
 					const reader = new FileReader();
 					reader.onload = () => resolve(reader.result as string);
 					reader.readAsDataURL(item.previewBlob!);
 				});
-				const imgH = 45;
-				if (y + imgH > pageH - margin) {
-					doc.addPage();
-					doc.setFillColor(...white);
-					doc.rect(0, 0, pageW, pageH, 'F');
-					y = margin;
-				}
-				doc.addImage(imgData, 'JPEG', margin, y, colW, imgH);
+
+				// Dimensions réelles pour calculer le ratio (fallback 3:2 si jsdom/erreur)
+				const fallbackDims = { imgW: colW, imgH: Math.round(colW * (2 / 3)) };
+				const { imgW, imgH } = await new Promise<{ imgW: number; imgH: number }>((resolve) => {
+					let done = false;
+					const finish = (v: { imgW: number; imgH: number }) => { if (!done) { done = true; resolve(v); } };
+
+					const img = new Image();
+					img.onload = () => {
+						const maxH = 80;
+						const nw = img.naturalWidth  || 3;
+						const nh = img.naturalHeight || 2;
+						const ratio = nh / nw;
+						const fullH = colW * ratio;
+						if (fullH <= maxH) {
+							finish({ imgW: colW, imgH: Math.round(fullH) });
+						} else {
+							const scale = maxH / fullH;
+							finish({ imgW: Math.round(colW * scale), imgH: maxH });
+						}
+					};
+					img.onerror = () => finish(fallbackDims);
+					img.src = imgData;
+					setTimeout(() => finish(fallbackDims), 50);
+				});
+
+				newPage(imgH + 4);
+				const x = margin + (colW - imgW) / 2;
+				doc.addImage(imgData, 'JPEG', x, y, imgW, imgH);
 				y += imgH + 4;
 			}
 
 			// Sujet + type
+			newPage(12);
 			doc.setFont('helvetica', 'normal');
 			doc.setFontSize(10);
 			doc.setTextColor(...light);
@@ -631,6 +658,7 @@
 			y += 7;
 
 			// Lumière
+			newPage(16);
 			doc.setFont('helvetica', 'bold');
 			doc.setFontSize(8);
 			doc.setTextColor(...grey);
@@ -640,10 +668,11 @@
 			doc.setFontSize(9);
 			doc.setTextColor(...light);
 			const lumiereLines = doc.splitTextToSize(r.lumiere, colW);
-			for (const line of lumiereLines) { doc.text(line, margin, y); y += 4; }
+			for (const line of lumiereLines) { newPage(5); doc.text(line, margin, y); y += 4; }
 			y += 2;
 
 			// Composition
+			newPage(16);
 			doc.setFont('helvetica', 'bold');
 			doc.setFontSize(8);
 			doc.setTextColor(...grey);
@@ -653,7 +682,7 @@
 			doc.setFontSize(9);
 			doc.setTextColor(...light);
 			const compoLines = doc.splitTextToSize(r.composition, colW);
-			for (const line of compoLines) { doc.text(line, margin, y); y += 4; }
+			for (const line of compoLines) { newPage(5); doc.text(line, margin, y); y += 4; }
 			y += 5;
 		}
 
