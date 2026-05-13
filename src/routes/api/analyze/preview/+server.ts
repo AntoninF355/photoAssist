@@ -1,5 +1,6 @@
 import exifr from 'exifr';
 import sharp from 'sharp';
+import { requireAuth } from '$lib/auth';
 import type { RequestHandler } from './$types';
 
 // ── Extraction du plus grand JPEG embarqué dans le RAW ─────────────────────
@@ -34,6 +35,9 @@ function extractLargestJpeg(buffer: Buffer): Buffer | null {
 // ── Handler ────────────────────────────────────────────────────────────────
 
 export const POST: RequestHandler = async ({ request }) => {
+	const unauthorized = requireAuth(request);
+	if (unauthorized) return unauthorized;
+
 	const form = await request.formData();
 	const rawFile = form.get('file');
 

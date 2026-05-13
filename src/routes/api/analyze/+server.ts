@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from '$env/dynamic/private';
+import { requireAuth } from '$lib/auth';
 import type { RequestHandler } from './$types';
 
 // ── Prompt système (fixe) ──────────────────────────────────────────────────
@@ -127,6 +128,9 @@ Utilise les critères de réussite propres au style "${targetStyle}" :
 // ── Handler SSE ────────────────────────────────────────────────────────────
 
 export const POST: RequestHandler = async ({ request }) => {
+	const unauthorized = requireAuth(request);
+	if (unauthorized) return unauthorized;
+
 	const form = await request.formData();
 	const jpegFile    = form.get('jpeg');
 	const metaRaw     = form.get('metadata');
