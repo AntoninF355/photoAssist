@@ -107,7 +107,7 @@ Les releases 1, 2 et 3 posent les fondations (upload, analyse, reset). Les relea
 
 ### Release 4 — Historique des analyses (US-A1)
 
-US -> En tant que photographe amateur, je veux retrouver mes analyses précédentes sans les avoir téléchargées, afin de suivre ma progression dans le temps.
+US -> En tant que photographe, je veux retrouver mes analyses précédentes sans les avoir téléchargées, afin de suivre ma progression dans le temps.
 
 Critères d'acceptation :
 - Les analyses sont sauvegardées automatiquement en localStorage après chaque résultat reçu
@@ -120,7 +120,7 @@ Critères d'acceptation :
 
 ### Release 5 — Analyse en lot (US-B1)
 
-US -> En tant que photographe semi-pro, je veux soumettre plusieurs photos RAW d'un même shoot en une seule fois, afin d'identifier rapidement les meilleures sans analyser manuellement chaque image.
+US -> En tant que photographe, je veux soumettre plusieurs photos RAW d'un même shoot en une seule fois, afin d'identifier rapidement les meilleures sans analyser manuellement chaque image.
 
 Critères d'acceptation :
 - La zone de dépôt accepte plusieurs fichiers simultanément (jusqu'à 10)
@@ -133,7 +133,7 @@ Critères d'acceptation :
 
 ### Release 6 — Export rapport PDF (US-B2)
 
-US -> En tant que photographe semi-pro, je veux exporter l'analyse d'une photo sous forme de rapport PDF illustré, afin de le partager avec un client ou de le conserver dans mon dossier de projet.
+US -> En tant que photographe, je veux exporter l'analyse d'une photo sous forme de rapport PDF illustré, afin de le partager avec un client ou de le conserver dans mon dossier de projet.
 
 Critères d'acceptation :
 - Un bouton "Exporter en PDF" est disponible une fois l'analyse affichée
@@ -144,7 +144,7 @@ Critères d'acceptation :
 
 ### Release 7 — Mode défi (US-C1)
 
-US -> En tant qu'instructeur ou photographe souhaitant progresser sur un style précis, je veux soumettre une photo en indiquant le style visé, afin de recevoir une analyse calibrée sur ce style plutôt que sur le style détecté automatiquement.
+US -> En tant que photographe souhaitant progresser sur un style précis, je veux soumettre une photo en indiquant le style visé, afin de recevoir une analyse calibrée sur ce style plutôt que sur le style détecté automatiquement.
 
 Critères d'acceptation :
 - Avant d'envoyer la photo, je peux sélectionner un "style cible" parmi : Rolling shot, Panning, Freeze / circuit, Statique extérieur, Studio, Détail / macro, Drift, Aérien
